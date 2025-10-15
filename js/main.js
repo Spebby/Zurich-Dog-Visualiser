@@ -137,15 +137,14 @@ function handleData(data, map, layerControl) {
 			category: row.category,
 			sex: row.sex_dog,
 			colour: row.colour,
-			birthdate: row.birthdate
+			birthdate: parseInt(row.birthdate)
 		};
 
 		// owner object exists?
 		if (!id2Owner[owner_id]) {
 			id2Owner[owner_id] = {
-				owner_id: owner_id,
 				sex: row.sex,
-				age: row.age,
+				age: parseInt(row.age.split('-')[1]),
 				dogs: []
 			};
 		}
@@ -176,7 +175,9 @@ function handleData(data, map, layerControl) {
 
 	// displays
 	const overlays = {
+		"Owner Age": displayAvgAge(quarterOwners, id2Owner),
 		"Owner Sex": displayAvgSex(quarterOwners, id2Owner),
+		"Dog Age": displayAvgDogAge(quarterDogs),
 		"Dog Sex": displayAvgDogSex(quarterDogs),
 		"Dog Catageory": displayAvgDogCat(quarterDogs)
 	};
@@ -188,17 +189,53 @@ function handleData(data, map, layerControl) {
 
 
 // buncha functions for displaying data
-function displayAvgAge(quarterDogs, quarterOwners, id2Owner) {
+function displayAvgAge(quarterOwners, id2Owner) {
+	const quarterScores = {};
+	
+	let oldest = 0;
+	let youngest = Infinity;
+	Object.keys(quarterOwners).forEach(qnr => {
+		const owners = quarterOwners[qnr];
+		const totalOwners = owners.size;
+
+		if (totalOwners === 0) {
+			quarterScores[qnr] = null;
+			return;
+		}
+
+		let ageSum = 0;
+		owners.forEach(id => {
+			owner = id2Owner[id];
+			if (owner.age) {
+				let age = owner.age;
+				ageSum += age;
+
+				if (age > oldest) oldest = age;
+				if (age < youngest) youngest = age;
+			}
+		});
+
+		const meanAge = ageSum / totalOwners;
+		quarterScores[qnr] = meanAge;
+	});
+
 	return L.geoJSON(quarterData, {
 		style: function (feature) {
 			const qnr = feature.properties.qnr;
+			const weight = quarterOwners[qnr].size / maxQuarterOwnerPop;
+			let age = quarterScores[qnr] - youngest;
+			let value = (age / (oldest - youngest)) * 100;
 			return {
 				color: `#222222`,
 				weight: 2,
 				opacity: 0.75,
-				fillColor: hsvTohex(map01ToRange(1, 235, 285), 100, 100),
-				fillOpacity: map01ToRange(1, 0.35, 0.75)
+				fillColor: hsvTohex(0, 0, map01ToRange(value, 0, 100)),
+				fillOpacity: map01ToRange(weight, 0.15, 0.75)
 			};
+		},
+		onEachFeature: function (feature, layer) {
+			const qnr = feature.properties.qnr;
+			layer.bindPopup(`Average age: ${(quarterScores[qnr]).toFixed(2)}\n  Number of people: ${quarterOwners[qnr].size}`);
 		}
 	});
 }
@@ -240,13 +277,66 @@ function displayAvgSex(quarterOwners, id2Owner) {
 				weight: 2,
 				opacity: 0.75,
 				fillColor: hsvTohex(map01ToRange(quarterScores[qnr], 235, 285), 100, 100),
-				fillOpacity: map01ToRange(weight, 0.35, 0.75)
+				fillOpacity: map01ToRange(weight, 0.15, 0.75)
 			};
 		},
 		onEachFeature: function (feature, layer) {
 			const qnr = feature.properties.qnr;
-			const weight = quarterOwners[qnr].size / maxQuarterOwnerPop;
-			layer.bindPopup(`${(weight * 100).toFixed(2)}% Female`);
+			layer.bindPopup(`${(quarterScores[qnr] * 100).toFixed(2)}% Female\n  Number of people: ${quarterOwners[qnr].size}`);
+		}
+	});
+}
+
+function displayAvgDogAge(quarterDogs) {
+	const quarterScores = {};
+	const currentYear = new Date().getFullYear();
+	
+	let oldest = 0;
+	let youngest = Infinity;
+	Object.keys(quarterDogs).forEach(qnr => {
+		const dogs = quarterDogs[qnr];
+		const totalDogs = dogs.length;
+
+		if (totalDogs === 0) {
+			quarterScores[qnr] = null;
+			return;
+		}
+
+		let ageSum = 0;
+		dogs.forEach(dog => {
+			if (dog.birthdate) {
+				const age = currentYear - dog.birthdate;
+				ageSum += age;
+
+				if (age > oldest) oldest = age;
+				if (age < youngest) youngest = age;
+			}
+		});
+
+		const meanAge = ageSum / totalDogs;
+		quarterScores[qnr] = meanAge;
+	});
+
+	return L.geoJSON(quarterData, {
+		style: function (feature) {
+			const qnr = feature.properties.qnr;
+			const weight = quarterDogs[qnr].length / maxQuarterDogPop;
+
+			// account for passage of time in database.
+			let age = quarterScores[qnr] - youngest;
+			let value = (age / (oldest - youngest)) * 100;
+
+			return {
+				color: `#222222`,
+				weight: 2,
+				opacity: 0.75,
+				fillColor: hsvTohex(0, 0, map01ToRange(value, 0, 100)),
+				fillOpacity: map01ToRange(weight, 0.15, 0.75)
+			};
+		},
+		onEachFeature: function (feature, layer) {
+			const qnr = feature.properties.qnr;
+			layer.bindPopup(`Average Birth Year: ${(currentYear - quarterScores[qnr]).toFixed(2)}\n  Number of Dogs: ${quarterDogs[qnr].length}`);
 		}
 	});
 }
@@ -286,13 +376,12 @@ function displayAvgDogSex(quarterDogs) {
 				weight: 2,
 				opacity: 0.75,
 				fillColor: hsvTohex(map01ToRange(quarterScores[qnr], 235, 285), 100, 100),
-				fillOpacity: map01ToRange(weight, 0.35, 0.75)
+				fillOpacity: map01ToRange(weight, 0.15, 0.75)
 			};
 		},
 		onEachFeature: function (feature, layer) {
 			const qnr = feature.properties.qnr;
-			const weight = quarterDogs[qnr].length / maxQuarterDogPop;
-			layer.bindPopup(`${(weight * 100).toFixed(2)}% Female`);
+			layer.bindPopup(`${(quarterScores[qnr] * 100).toFixed(2)}% Female\n  Number of Dogs: ${quarterDogs[qnr].length}`);
 		}
 	});
 }
@@ -350,7 +439,7 @@ function displayAvgDogCat(quarterDogs) {
 				weight: 2,
 				opacity: 0.75,
 				fillColor: hex,
-				fillOpacity: map01ToRange(len / maxQuarterDogPop, 0.35, 0.75)
+				fillOpacity: map01ToRange(len / maxQuarterDogPop, 0.15, 0.75)
 			};
 		},
 		onEachFeature: function (feature, layer) {
@@ -362,7 +451,7 @@ function displayAvgDogCat(quarterDogs) {
 			let IW = ((cat.I  / len) * 100).toFixed(2);
 			let JW = ((cat.II / len) * 100).toFixed(2);
 
-			layer.bindPopup(`${KW}% Kleinwüchsig.\n${IW}% Rassentypenliste I.\n${JW}% Rassentypenliste II`);
+			layer.bindPopup(`${KW}% Kleinwüchsig.\n${IW}% Rassentypenliste I.\n${JW}% Rassentypenliste II\n  Number of Dogs: ${quarterDogs[qnr].length}`);
 		}
 	});
 }
